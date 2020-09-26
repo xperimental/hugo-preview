@@ -37,7 +37,7 @@ func main() {
 		log.Fatalf("Error creating repository: %s", err)
 	}
 
-	srv, err := server.New(log.WithField("component", "server"), cfg.Server, repo.SiteHandler)
+	srv, err := server.New(log.WithField("component", "server"), cfg.Server, repo)
 	if err != nil {
 		log.Fatalf("Error creating server: %s", err)
 	}

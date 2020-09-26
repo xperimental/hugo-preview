@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -11,18 +12,22 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/sirupsen/logrus"
 	"github.com/xperimental/hugo-preview/internal/config"
+	"github.com/xperimental/hugo-preview/internal/data"
 )
 
-type SiteSource func(ctx context.Context, refName string) (http.Handler, error)
-
-type Server struct {
-	log        logrus.FieldLogger
-	cfg        config.Server
-	siteSource SiteSource
-	server     *http.Server
+type SiteRepository interface {
+	ListBranches(ctx context.Context) (*data.BranchList, error)
+	SiteHandler(ctx context.Context, commit string) (http.Handler, error)
 }
 
-func New(log logrus.FieldLogger, cfg config.Server, siteSource SiteSource) (*Server, error) {
+type Server struct {
+	log            logrus.FieldLogger
+	cfg            config.Server
+	siteRepository SiteRepository
+	server         *http.Server
+}
+
+func New(log logrus.FieldLogger, cfg config.Server, repository SiteRepository) (*Server, error) {
 	if cfg.ListenAddress == "" {
 		return nil, errors.New("listenAddress can not be empty")
 	}
@@ -32,14 +37,15 @@ func New(log logrus.FieldLogger, cfg config.Server, siteSource SiteSource) (*Ser
 	}
 
 	srv := &Server{
-		log:        log,
-		cfg:        cfg,
-		siteSource: siteSource,
-		server:     &http.Server{},
+		log:            log,
+		cfg:            cfg,
+		siteRepository: repository,
+		server:         &http.Server{},
 	}
 
 	r := mux.NewRouter()
 	r.Handle("/preview/{commit}/", srv.previewHandler())
+	r.Handle("/api/branches", srv.branchesHandler())
 	r.Handle("/", srv.indexHandler())
 	srv.server.Handler = r
 
@@ -87,6 +93,21 @@ func (s *Server) indexHandler() http.Handler {
 	})
 }
 
+func (s *Server) branchesHandler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		branches, err := s.siteRepository.ListBranches(r.Context())
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to list branches: %s", err), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json; charset=utf8")
+		if err := json.NewEncoder(w).Encode(branches); err != nil {
+			s.log.Errorf("Failed to send branches: %s", err)
+		}
+	})
+}
+
 func (s *Server) previewHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		vars := mux.Vars(r)
@@ -98,7 +119,7 @@ func (s *Server) previewHandler() http.Handler {
 		}
 
 		s.log.Debugf("Finding site for commit %q", commit)
-		site, err := s.siteSource(r.Context(), commit)
+		site, err := s.siteRepository.SiteHandler(r.Context(), commit)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("Error getting site source: %s", err), http.StatusInternalServerError)
 			return

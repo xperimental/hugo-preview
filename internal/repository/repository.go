@@ -18,11 +18,13 @@ import (
 	"github.com/go-git/go-git/v5/storage/memory"
 	"github.com/sirupsen/logrus"
 	"github.com/xperimental/hugo-preview/internal/config"
+	"github.com/xperimental/hugo-preview/internal/data"
 )
 
 var (
-	hashRegex   = regexp.MustCompile("[0-9a-f]+")
-	errShutdown = errors.New("repository is shutting down")
+	hashRegex        = regexp.MustCompile("[0-9a-f]+")
+	errShutdown      = errors.New("repository is shutting down")
+	errBaseNotCloned = errors.New("base clone not done")
 )
 
 type Repository struct {
@@ -92,13 +94,49 @@ func (r *Repository) Start(ctx context.Context, wg *sync.WaitGroup) error {
 	return nil
 }
 
+func (r *Repository) ListBranches(ctx context.Context) (*data.BranchList, error) {
+	if r.shutdown {
+		return nil, errShutdown
+	}
+
+	if r.baseRepo == nil {
+		return nil, errBaseNotCloned
+	}
+
+	iter, err := r.baseRepo.Branches()
+	if err != nil {
+		return nil, fmt.Errorf("failed to list branches: %w", err)
+	}
+
+	result := &data.BranchList{
+		Branches: []data.Branch{},
+	}
+loop:
+	for {
+		b, err := iter.Next()
+		switch {
+		case err == io.EOF:
+			break loop
+		case err != nil:
+			return nil, fmt.Errorf("error iterating branches: %w", err)
+		default:
+		}
+
+		result.Branches = append(result.Branches, data.Branch{
+			Name:       b.Name().String(),
+			CommitHash: b.Hash().String(),
+		})
+	}
+	return result, nil
+}
+
 func (r *Repository) SiteHandler(ctx context.Context, refName string) (http.Handler, error) {
 	if r.shutdown {
 		return nil, errShutdown
 	}
 
 	if r.baseRepo == nil {
-		return nil, errors.New("base clone not done")
+		return nil, errBaseNotCloned
 	}
 
 	resolved, err := r.resolveRef(refName)
