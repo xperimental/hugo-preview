@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -100,6 +101,10 @@ func setDefaults(cfg *Config) {
 
 	if cfg.Server.BaseURL == "" {
 		cfg.Server.BaseURL = "http://localhost:8080/"
+	}
+
+	if !strings.HasSuffix(cfg.Server.BaseURL, "/") {
+		cfg.Server.BaseURL = cfg.Server.BaseURL + "/"
 	}
 
 	if cfg.Server.ShutdownTimeout == 0 {
