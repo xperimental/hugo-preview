@@ -1,0 +1,14 @@
+<html>
+    <head>
+        <title>hugo Preview Server</title>
+    </head>
+    <body>
+        <h1>hugo Preview Server</h1>
+        <h2>Available branches:</h2>
+        <ul>
+            {{ range .Branches }}
+            <li><a href="/preview/{{ .CommitHash }}/">{{ .Name }}</a></li>
+            {{ end }}
+        </ul>
+    </body>
+</html>

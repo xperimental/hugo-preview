@@ -156,7 +156,7 @@ loop:
 		}
 
 		result.Branches = append(result.Branches, data.Branch{
-			Name:       b.Name().String(),
+			Name:       b.Name().Short(),
 			CommitHash: b.Hash().String(),
 		})
 	}

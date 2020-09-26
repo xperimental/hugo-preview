@@ -5,10 +5,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html/template"
 	"net"
 	"net/http"
+	"sort"
+	"strings"
 	"sync"
 
+	"github.com/gobuffalo/packd"
+	"github.com/gobuffalo/packr/v2"
 	"github.com/gorilla/mux"
 	"github.com/sirupsen/logrus"
 	"github.com/xperimental/hugo-preview/internal/config"
@@ -25,6 +30,7 @@ type Server struct {
 	cfg            config.Server
 	siteRepository SiteRepository
 	server         *http.Server
+	templates      *template.Template
 }
 
 func New(log logrus.FieldLogger, cfg config.Server, repository SiteRepository) (*Server, error) {
@@ -36,11 +42,24 @@ func New(log logrus.FieldLogger, cfg config.Server, repository SiteRepository) (
 		return nil, errors.New("shutdownTimeout can not be zero")
 	}
 
+	tpl := template.New("templates")
+	templateBox := packr.New("templates", "templates")
+	if err := templateBox.Walk(func(s string, f packd.File) error {
+		if _, err := tpl.New(s).Parse(f.String()); err != nil {
+			return fmt.Errorf("error parsing %q: %s", s, err)
+		}
+
+		return nil
+	}); err != nil {
+		return nil, fmt.Errorf("can not parse templates: %s", err)
+	}
+
 	srv := &Server{
 		log:            log,
 		cfg:            cfg,
 		siteRepository: repository,
 		server:         &http.Server{},
+		templates:      tpl,
 	}
 
 	r := mux.NewRouter()
@@ -89,7 +108,20 @@ func (s *Server) Start(ctx context.Context, wg *sync.WaitGroup) error {
 
 func (s *Server) indexHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintln(w, "index")
+		branches, err := s.siteRepository.ListBranches(r.Context())
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to list branches: %s", err), http.StatusInternalServerError)
+			return
+		}
+
+		sort.Slice(branches.Branches, func(i, j int) bool {
+			return strings.Compare(branches.Branches[i].Name, branches.Branches[j].Name) < 0
+		})
+
+		w.Header().Set("Content-Type", "text/html; charset=utf8")
+		if err := s.templates.ExecuteTemplate(w, "index.html", branches); err != nil {
+			s.log.Errorf("Error executing template: %s", err)
+		}
 	})
 }
 
