@@ -64,6 +64,7 @@ func New(log logrus.FieldLogger, cfg config.Server, repository SiteRepository) (
 
 	r := mux.NewRouter()
 	r.PathPrefix("/preview/{commit}/").Handler(srv.previewHandler())
+	r.Handle("/preview/{commit}", srv.redirectPreviewHandler())
 	r.Handle("/api/branches", srv.branchesHandler())
 	r.Handle("/", srv.indexHandler())
 	srv.server.Handler = r
@@ -137,6 +138,12 @@ func (s *Server) branchesHandler() http.Handler {
 		if err := json.NewEncoder(w).Encode(branches); err != nil {
 			s.log.Errorf("Failed to send branches: %s", err)
 		}
+	})
+}
+
+func (s *Server) redirectPreviewHandler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, r.URL.Path+"/", http.StatusFound)
 	})
 }
 
