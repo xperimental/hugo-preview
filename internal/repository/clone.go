@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/xperimental/hugo-preview/internal/config"
+	"github.com/xperimental/hugo-preview/internal/render"
 )
 
 const (
@@ -18,10 +19,9 @@ type Clone struct {
 	BasePath  string
 	Directory string
 
-	LastAccess  time.Time
-	Ready       bool
-	RenderError error
-	handler     http.Handler
+	LastAccess   time.Time
+	RenderStatus *render.Status
+	handler      http.Handler
 }
 
 func NewClone(log config.Logger, commitHash, basePath, targetDir string) *Clone {
@@ -33,21 +33,20 @@ func NewClone(log config.Logger, commitHash, basePath, targetDir string) *Clone 
 		BasePath:  basePath,
 		Directory: targetDir,
 
-		LastAccess:  time.Now(),
-		Ready:       false,
-		RenderError: nil,
-		handler:     handler,
+		LastAccess:   time.Now(),
+		RenderStatus: nil,
+		handler:      handler,
 	}
 }
 
 func (c *Clone) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if !c.Ready {
+	if c.RenderStatus == nil {
 		http.Error(w, "Clone not ready yet.", http.StatusInternalServerError)
 		return
 	}
 
-	if c.RenderError != nil {
-		http.Error(w, fmt.Sprintf("Error during render: %s", c.RenderError), http.StatusInternalServerError)
+	if c.RenderStatus.Error != nil {
+		http.Error(w, fmt.Sprintf("Error during render: %s\n\nOutput:\n%s", c.RenderStatus.Error, c.RenderStatus.Output), http.StatusInternalServerError)
 		return
 	}
 

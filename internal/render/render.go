@@ -1,6 +1,7 @@
 package render
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"net/url"
@@ -10,13 +11,13 @@ import (
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
-	"github.com/sirupsen/logrus"
 	"github.com/xperimental/hugo-preview/internal/config"
 )
 
 type Status struct {
-	Info  *Info
-	Error error
+	CommitHash string
+	Output     string
+	Error      error
 }
 
 type Info struct {
@@ -57,10 +58,11 @@ func (q *Queue) Start(ctx context.Context, wg *sync.WaitGroup) {
 			case info := <-q.queue:
 				q.log.Debugf("Got render info: %v", info)
 
-				err := q.renderSite(ctx, info)
+				output, err := q.renderSite(ctx, info)
 				info.StatusChan <- &Status{
-					Info:  info,
-					Error: err,
+					CommitHash: info.CommitHash,
+					Output:     output,
+					Error:      err,
 				}
 			}
 		}
@@ -71,30 +73,30 @@ func (q *Queue) Submit(info *Info) {
 	q.queue <- info
 }
 
-func (q *Queue) renderSite(ctx context.Context, info *Info) error {
+func (q *Queue) renderSite(ctx context.Context, info *Info) (string, error) {
 	repo, err := git.PlainCloneContext(ctx, info.TargetPath, false, &git.CloneOptions{
 		URL:               info.RepositoryURL,
 		RecurseSubmodules: git.DefaultSubmoduleRecursionDepth,
 	})
 	if err != nil {
-		return fmt.Errorf("can not clone repository: %w", err)
+		return "", fmt.Errorf("can not clone repository: %w", err)
 	}
 
 	wt, err := repo.Worktree()
 	if err != nil {
-		return fmt.Errorf("can not get worktree: %w", err)
+		return "", fmt.Errorf("can not get worktree: %w", err)
 	}
 
 	err = wt.Checkout(&git.CheckoutOptions{
 		Hash: plumbing.NewHash(info.CommitHash),
 	})
 	if err != nil {
-		return fmt.Errorf("error during checkout: %w", err)
+		return "", fmt.Errorf("error during checkout: %w", err)
 	}
 
 	baseURL, err := q.BaseURL(info.CommitHash)
 	if err != nil {
-		return fmt.Errorf("can not format base URL: %w", err)
+		return "", fmt.Errorf("can not format base URL: %w", err)
 	}
 	q.log.Debugf("Base URL: %s", baseURL)
 
@@ -103,23 +105,25 @@ func (q *Queue) renderSite(ctx context.Context, info *Info) error {
 		baseURL.String(),
 	}
 
+	output := &bytes.Buffer{}
+
 	cmd := exec.Command(q.hugoPath, hugoArguments...)
 	cmd.Dir = info.TargetPath
-	cmd.Stdout = q.log.WriterLevel(logrus.DebugLevel)
-	cmd.Stderr = q.log.WriterLevel(logrus.ErrorLevel)
+	cmd.Stdout = output
+	cmd.Stderr = output
 
 	q.log.Debugf("Running command: %s %v", q.hugoPath, hugoArguments)
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("can not start renderer: %w", err)
+		return "", fmt.Errorf("can not start renderer: %w", err)
 	}
 
 	q.log.Debugln("Waiting for render to complete.")
 	if err := cmd.Wait(); err != nil {
-		return fmt.Errorf("error during execution of renderer: %w", err)
+		return output.String(), fmt.Errorf("error during execution of renderer: %w", err)
 	}
 
 	q.log.Debugln("Rendering done.")
-	return nil
+	return output.String(), nil
 }
 
 func (q *Queue) BaseURL(commitHash string) (*url.URL, error) {

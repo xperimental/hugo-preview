@@ -109,10 +109,10 @@ func (r *Repository) Start(ctx context.Context, wg *sync.WaitGroup) error {
 				r.cleanup()
 				return
 			case status := <-r.renderStatusChan:
-				r.log.Debugf("Got render status for %s", status.Info.CommitHash)
+				r.log.Debugf("Got render status for %s", status.CommitHash)
 
-				if err := r.setCloneStatus(status.Info.CommitHash, status.Error); err != nil {
-					r.log.Errorf("Error updating clone status for %q: %s", status.Info.CommitHash, err)
+				if err := r.setCloneStatus(status); err != nil {
+					r.log.Errorf("Error updating clone status for %q: %s", status.CommitHash, err)
 				}
 			case start := <-fetchTimer.C:
 				r.log.Debugf("Starting fetch at %s", start.UTC())
@@ -233,17 +233,16 @@ func (r *Repository) doCleanupClone(clone *Clone) error {
 	return nil
 }
 
-func (r *Repository) setCloneStatus(commitHash string, renderError error) error {
+func (r *Repository) setCloneStatus(renderStatus *render.Status) error {
 	r.repoLock.RLock()
 	defer r.repoLock.RUnlock()
 
-	clone, ok := r.activeClones[commitHash]
+	clone, ok := r.activeClones[renderStatus.CommitHash]
 	if !ok {
-		return fmt.Errorf("clone not found: %s", commitHash)
+		return fmt.Errorf("clone not found: %s", renderStatus.CommitHash)
 	}
 
-	clone.Ready = true
-	clone.RenderError = renderError
+	clone.RenderStatus = renderStatus
 	return nil
 }
 
