@@ -46,19 +46,24 @@ func NewQueue(log config.Logger, cfg config.Config) *Queue {
 func (q *Queue) Start(ctx context.Context, wg *sync.WaitGroup) {
 	wg.Add(1)
 	go func() {
-		wg.Done()
+		defer wg.Done()
+		defer q.log.Debug("Render queue shut down.")
 
 		q.log.Debug("Render queue ready.")
-		for info := range q.queue {
-			q.log.Debugf("Got render info: %v", info)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case info := <-q.queue:
+				q.log.Debugf("Got render info: %v", info)
 
-			err := q.renderSite(ctx, info)
-			info.StatusChan <- &Status{
-				Info:  info,
-				Error: err,
+				err := q.renderSite(ctx, info)
+				info.StatusChan <- &Status{
+					Info:  info,
+					Error: err,
+				}
 			}
 		}
-		q.log.Debug("Render queue shut down.")
 	}()
 }
 
