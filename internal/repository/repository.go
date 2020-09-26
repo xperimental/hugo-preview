@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/go-git/go-git/v5"
+	gitconfig "github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/storage/memory"
 	"github.com/xperimental/hugo-preview/internal/config"
@@ -66,16 +67,34 @@ func (r *Repository) Start(ctx context.Context, wg *sync.WaitGroup) error {
 
 		r.log.Infoln("Cloning repository...")
 		start := time.Now()
-		baseRepo, err := git.CloneContext(ctx, memory.NewStorage(), nil, &git.CloneOptions{
-			URL: r.cfg.URL,
-		})
+		baseRepo, err := git.Init(memory.NewStorage(), nil)
 		if err != nil {
-			r.log.Errorf("Error cloning repository: %s", err)
+			r.log.Errorf("Error creating repository: %s", err)
+			return
+		}
+		r.setBaseRepo(baseRepo)
+
+		refSpecs := make([]gitconfig.RefSpec, len(r.cfg.RefSpecs))
+		for i, r := range r.cfg.RefSpecs {
+			refSpecs[i] = gitconfig.RefSpec(r)
+		}
+		if _, err := baseRepo.CreateRemote(&gitconfig.RemoteConfig{
+			Name: "origin",
+			URLs: []string{
+				r.cfg.URL,
+			},
+			Fetch: refSpecs,
+		}); err != nil {
+			r.log.Errorf("Error creating remote: %s", err)
+			return
+		}
+
+		if err := r.fetchBase(ctx); err != nil {
+			r.log.Errorf("Error during initial fetch: %s", err)
 			return
 		}
 
 		r.log.Infof("Initial clone successful in %s", time.Since(start))
-		r.setBaseRepo(baseRepo)
 
 		r.log.Debugf("Fetching repo every %s", r.cfg.FetchInterval)
 		fetchTimer := time.NewTicker(r.cfg.FetchInterval)

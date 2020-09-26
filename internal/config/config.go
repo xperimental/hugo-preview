@@ -30,6 +30,7 @@ type Config struct {
 // Repository contains configuration about a Git repository.
 type Repository struct {
 	URL           string        `yaml:"url"`
+	RefSpecs      []string      `yaml:"refSpecs"`
 	FetchInterval time.Duration `yaml:"fetchInterval"`
 	FetchTimeout  time.Duration `yaml:"fetchTimeout"`
 	CloneTimeout  time.Duration `yaml:"cloneTimeout"`
@@ -81,6 +82,12 @@ func setDefaults(cfg *Config) {
 
 	if cfg.HugoPath == "" {
 		cfg.HugoPath = "hugo"
+	}
+
+	if len(cfg.Repository.RefSpecs) == 0 {
+		cfg.Repository.RefSpecs = []string{
+			"+refs/heads/*:refs/heads/*",
+		}
 	}
 
 	if cfg.Repository.FetchInterval == 0 {
