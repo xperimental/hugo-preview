@@ -10,6 +10,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/xperimental/hugo-preview/internal/config"
+	"github.com/xperimental/hugo-preview/internal/render"
 	"github.com/xperimental/hugo-preview/internal/repository"
 	"github.com/xperimental/hugo-preview/internal/server"
 )
@@ -32,7 +33,9 @@ func main() {
 	}
 	log.SetLevel(cfg.LogLevel)
 
-	repo, err := repository.New(log.WithField("component", "repository"), cfg.Repository)
+	renderQueue := render.NewQueue(log.WithField("component", "render"), cfg)
+
+	repo, err := repository.New(log.WithField("component", "repository"), cfg.Repository, renderQueue)
 	if err != nil {
 		log.Fatalf("Error creating repository: %s", err)
 	}
@@ -42,17 +45,19 @@ func main() {
 		log.Fatalf("Error creating server: %s", err)
 	}
 
-	if err := runMain(repo, srv); err != nil {
+	if err := runMain(renderQueue, repo, srv); err != nil {
 		log.Fatalln(err)
 	}
 
 	log.Infoln("Shutdown complete.")
 }
 
-func runMain(repo *repository.Repository, srv *server.Server) error {
+func runMain(renderQueue *render.Queue, repo *repository.Repository, srv *server.Server) error {
 	wg := &sync.WaitGroup{}
 	ctx, cancel := initSignalHandler()
 	defer cancel()
+
+	renderQueue.Start(ctx, wg)
 
 	if err := repo.Start(ctx, wg); err != nil {
 		return fmt.Errorf("error starting repository: %s", err)

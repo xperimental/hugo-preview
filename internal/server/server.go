@@ -44,7 +44,7 @@ func New(log logrus.FieldLogger, cfg config.Server, repository SiteRepository) (
 	}
 
 	r := mux.NewRouter()
-	r.Handle("/preview/{commit}/", srv.previewHandler())
+	r.PathPrefix("/preview/{commit}/").Handler(srv.previewHandler())
 	r.Handle("/api/branches", srv.branchesHandler())
 	r.Handle("/", srv.indexHandler())
 	srv.server.Handler = r

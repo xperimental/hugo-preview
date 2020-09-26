@@ -12,6 +12,7 @@ import (
 	"gopkg.in/yaml.v2"
 )
 
+// Logger provides an application-wide definition of a Logger interface.
 type Logger interface {
 	logrus.FieldLogger
 	WriterLevel(level logrus.Level) *io.PipeWriter
@@ -20,6 +21,7 @@ type Logger interface {
 // Config contains the application configuration.
 type Config struct {
 	LogLevel   logrus.Level `yaml:"logLevel"`
+	HugoPath   string       `yaml:"hugoPath"`
 	Repository Repository   `yaml:"repository"`
 	Server     Server       `yaml:"server"`
 }
@@ -30,17 +32,12 @@ type Repository struct {
 	FetchInterval time.Duration `yaml:"fetchInterval"`
 	FetchTimeout  time.Duration `yaml:"fetchTimeout"`
 	CloneTimeout  time.Duration `yaml:"cloneTimeout"`
-	Renderer      Renderer      `yaml:"renderer"`
-}
-
-type Renderer struct {
-	CommandTemplate []string `yaml:"commandTemplate"`
-	ServeDir        string   `yaml:"serveDir"`
 }
 
 // Server contains configuration for the HTTP server.
 type Server struct {
 	ListenAddress   string        `yaml:"listenAddress"`
+	BaseURL         string        `yaml:"baseUrl"`
 	ShutdownTimeout time.Duration `yaml:"shutdownTimeout"`
 }
 
@@ -81,6 +78,10 @@ func setDefaults(cfg *Config) {
 		cfg.LogLevel = logrus.InfoLevel
 	}
 
+	if cfg.HugoPath == "" {
+		cfg.HugoPath = "hugo"
+	}
+
 	if cfg.Repository.FetchInterval == 0 {
 		cfg.Repository.FetchInterval = 5 * time.Minute
 	}
@@ -91,6 +92,14 @@ func setDefaults(cfg *Config) {
 
 	if cfg.Repository.CloneTimeout == 0 {
 		cfg.Repository.CloneTimeout = 1 * time.Minute
+	}
+
+	if cfg.Server.ListenAddress == "" {
+		cfg.Server.ListenAddress = ":8080"
+	}
+
+	if cfg.Server.BaseURL == "" {
+		cfg.Server.BaseURL = "http://localhost:8080/"
 	}
 
 	if cfg.Server.ShutdownTimeout == 0 {

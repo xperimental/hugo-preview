@@ -16,9 +16,9 @@ import (
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/storage/memory"
-	"github.com/sirupsen/logrus"
 	"github.com/xperimental/hugo-preview/internal/config"
 	"github.com/xperimental/hugo-preview/internal/data"
+	"github.com/xperimental/hugo-preview/internal/render"
 )
 
 var (
@@ -28,25 +28,33 @@ var (
 )
 
 type Repository struct {
-	log          config.Logger
-	cfg          config.Repository
-	baseRepo     *git.Repository
-	repoLock     *sync.RWMutex
-	activeClones map[string]*Clone
-	shutdown     bool
+	log      config.Logger
+	cfg      config.Repository
+	renderer *render.Queue
+
+	baseRepo         *git.Repository
+	repoLock         *sync.RWMutex
+	activeClones     map[string]*Clone
+	renderStatusChan chan *render.Status
+	shutdown         bool
 }
 
-func New(log config.Logger, cfg config.Repository) (*Repository, error) {
+func New(log config.Logger, cfg config.Repository, renderer *render.Queue) (*Repository, error) {
 	if cfg.URL == "" {
 		return nil, errors.New("URL can not be empty")
 	}
 	log.Infof("Repository URL: %s", cfg.URL)
 
 	return &Repository{
-		log:          log,
-		cfg:          cfg,
-		repoLock:     &sync.RWMutex{},
-		activeClones: make(map[string]*Clone),
+		log:      log,
+		cfg:      cfg,
+		renderer: renderer,
+
+		baseRepo:         nil,
+		repoLock:         &sync.RWMutex{},
+		activeClones:     make(map[string]*Clone),
+		renderStatusChan: make(chan *render.Status),
+		shutdown:         false,
 	}, nil
 }
 
@@ -78,9 +86,15 @@ func (r *Repository) Start(ctx context.Context, wg *sync.WaitGroup) error {
 			case <-ctx.Done():
 				r.shutdown = true
 
-				r.log.Debugln("Shutting down fetcher...")
+				r.log.Debugln("Shutting down repository...")
 				r.cleanup()
 				return
+			case status := <-r.renderStatusChan:
+				r.log.Debugf("Got render status for %s", status.Info.CommitHash)
+
+				if err := r.setCloneStatus(status.Info.CommitHash, status.Error); err != nil {
+					r.log.Errorf("Error updating clone status for %q: %s", status.Info.CommitHash, err)
+				}
 			case start := <-fetchTimer.C:
 				r.log.Debugf("Starting fetch at %s", start.UTC())
 				if err := r.fetchBase(ctx); err != nil {
@@ -145,6 +159,15 @@ func (r *Repository) SiteHandler(ctx context.Context, refName string) (http.Hand
 	}
 	r.log.Debugf("Reference %q resolved to commit %q", refName, resolved)
 
+	if resolved != refName {
+		baseURL, err := r.renderer.BaseURL(resolved)
+		if err != nil {
+			return nil, fmt.Errorf("error creating base URL for resolved: %w", err)
+		}
+
+		return http.RedirectHandler(baseURL.String()+"/", http.StatusFound), nil
+	}
+
 	clone, err := r.getClone(ctx, resolved)
 	if err != nil {
 		return nil, err
@@ -160,10 +183,49 @@ func (r *Repository) cleanup() {
 	for _, clone := range r.activeClones {
 		r.log.Debugf("Cleaning up clone %q", clone.Commit)
 
-		if err := os.RemoveAll(clone.Directory); err != nil {
-			r.log.Errorf("Error removing directory %q: %s", clone.Directory, err)
+		if err := r.doCleanupClone(clone); err != nil {
+			r.log.Errorf("Error cleaning up clone: %s", err)
 		}
 	}
+}
+
+func (r *Repository) cleanupClone(commitHash string) error {
+	r.repoLock.Lock()
+	defer r.repoLock.Unlock()
+
+	clone, ok := r.activeClones[commitHash]
+	if !ok {
+		return fmt.Errorf("clone not found: %s", commitHash)
+	}
+
+	if err := r.doCleanupClone(clone); err != nil {
+		return err
+	}
+
+	delete(r.activeClones, commitHash)
+	return nil
+}
+
+func (r *Repository) doCleanupClone(clone *Clone) error {
+	if err := os.RemoveAll(clone.Directory); err != nil {
+		return fmt.Errorf("error removing directory %q: %s", clone.Directory, err)
+	}
+
+	return nil
+}
+
+func (r *Repository) setCloneStatus(commitHash string, renderError error) error {
+	r.repoLock.RLock()
+	defer r.repoLock.RUnlock()
+
+	clone, ok := r.activeClones[commitHash]
+	if !ok {
+		return fmt.Errorf("clone not found: %s", commitHash)
+	}
+
+	clone.Ready = true
+	clone.RenderError = renderError
+	return nil
 }
 
 func (r *Repository) setBaseRepo(baseRepo *git.Repository) {
@@ -279,26 +341,28 @@ func (r *Repository) createClone(ctx context.Context, commitHash string) (*Clone
 		return clone, nil
 	}
 
-	cloneLog := r.log.WithFields(logrus.Fields{
-		"component": "clone",
-		"commit":    commitHash,
-	})
-	cloneLog.Debugln("Creating clone")
+	r.log.Debugf("Creating clone for %q", commitHash)
+
+	baseURL, err := r.renderer.BaseURL(commitHash)
+	if err != nil {
+		return nil, fmt.Errorf("can not create base URL: %s", err)
+	}
 
 	dir, err := ioutil.TempDir("", "hugo-preview-")
 	if err != nil {
 		return nil, fmt.Errorf("can not create clone directory: %s", err)
 	}
-	cloneLog.Debugf("Created directory %q", dir)
+	r.log.Debugf("Created directory %q", dir)
 
-	clone, err := NewClone(cloneLog, r.cfg, commitHash, dir)
-	if err != nil {
-		if err := os.RemoveAll(dir); err != nil {
-			cloneLog.Errorf("Error removing directory %q: %s", dir, err)
-		}
+	clone := NewClone(r.log, commitHash, baseURL.Path, dir)
 
-		return nil, err
+	renderInfo := &render.Info{
+		RepositoryURL: r.cfg.URL,
+		CommitHash:    commitHash,
+		TargetPath:    dir,
+		StatusChan:    r.renderStatusChan,
 	}
+	r.renderer.Submit(renderInfo)
 
 	r.activeClones[commitHash] = clone
 	return clone, nil
