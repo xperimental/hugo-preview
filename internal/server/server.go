@@ -9,15 +9,24 @@ import (
 	"net"
 	"net/http"
 	"sort"
-	"strings"
 	"sync"
+	"time"
 
+	"github.com/dustin/go-humanize"
 	"github.com/gobuffalo/packd"
 	"github.com/gobuffalo/packr/v2"
 	"github.com/gorilla/mux"
 	"github.com/sirupsen/logrus"
 	"github.com/xperimental/hugo-preview/internal/config"
 	"github.com/xperimental/hugo-preview/internal/data"
+)
+
+var (
+	templateFuncMap = map[string]interface{}{
+		"ago": func(date time.Time) string {
+			return humanize.Time(date)
+		},
+	}
 )
 
 type SiteRepository interface {
@@ -42,7 +51,7 @@ func New(log logrus.FieldLogger, cfg config.Server, repository SiteRepository) (
 		return nil, errors.New("shutdownTimeout can not be zero")
 	}
 
-	tpl := template.New("templates")
+	tpl := template.New("templates").Funcs(templateFuncMap)
 	templateBox := packr.New("templates", "templates")
 	if err := templateBox.Walk(func(s string, f packd.File) error {
 		if _, err := tpl.New(s).Parse(f.String()); err != nil {
@@ -116,7 +125,9 @@ func (s *Server) indexHandler() http.Handler {
 		}
 
 		sort.Slice(branches.Branches, func(i, j int) bool {
-			return strings.Compare(branches.Branches[i].Name, branches.Branches[j].Name) < 0
+			dI := branches.Branches[i].Commit.Committer.Date
+			dJ := branches.Branches[j].Commit.Committer.Date
+			return dI.After(dJ)
 		})
 
 		w.Header().Set("Content-Type", "text/html; charset=utf8")

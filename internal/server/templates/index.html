@@ -6,9 +6,12 @@
         <h1>hugo Preview Server</h1>
         <h2>Available branches:</h2>
         <ul>
-            {{ range .Branches }}
-            <li><a href="/preview/{{ .CommitHash }}/">{{ .Name }}</a></li>
-            {{ end }}
+        {{ range .Branches }}
+            <li>
+                <a href="/preview/{{ .Commit.Hash }}/">{{ .Name }}</a>
+                ({{ .Commit.Committer.Date | ago }} by {{ .Commit.Committer.Name }})
+            </li>
+        {{ end }}
         </ul>
     </body>
 </html>

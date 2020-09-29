@@ -155,9 +155,28 @@ loop:
 		default:
 		}
 
+		c, err := r.baseRepo.CommitObject(b.Hash())
+		if err != nil {
+			r.log.Errorf("Error getting commit %q for branch %q: %s", b.Hash(), b.Name(), err)
+			continue
+		}
+
 		result.Branches = append(result.Branches, data.Branch{
-			Name:       b.Name().Short(),
-			CommitHash: b.Hash().String(),
+			Name: b.Name().Short(),
+			Commit: data.Commit{
+				Hash:    b.Hash().String(),
+				Message: c.Message,
+				Committer: data.User{
+					Name:  c.Committer.Name,
+					Email: c.Committer.Email,
+					Date:  c.Committer.When,
+				},
+				Author: data.User{
+					Name:  c.Author.Name,
+					Email: c.Author.Email,
+					Date:  c.Author.When,
+				},
+			},
 		})
 	}
 	return result, nil
