@@ -42,6 +42,15 @@ type Server struct {
 	ListenAddress   string        `yaml:"listenAddress"`
 	BaseURL         string        `yaml:"baseUrl"`
 	ShutdownTimeout time.Duration `yaml:"shutdownTimeout"`
+	OAuth           *OAuth        `yaml:"oauth"`
+}
+
+// OAuth contains the information needed for OAuth authentication.
+type OAuth struct {
+	AuthorizeURL string `yaml:"authorizeUrl"`
+	TokenURL     string `yaml:"tokenUrl"`
+	ClientID     string `yaml:"clientId"`
+	ClientSecret string `yaml:"clientSecret"`
 }
 
 // GetConfig parses the command-line parameters and created the configuration.
