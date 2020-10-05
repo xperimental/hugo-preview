@@ -28,6 +28,8 @@ var (
 	errBaseNotCloned = errors.New("base clone not done")
 )
 
+type shutdownFunc func() error
+
 type Repository struct {
 	log      config.Logger
 	cfg      config.Repository
@@ -38,6 +40,7 @@ type Repository struct {
 	activeClones     map[string]*Clone
 	renderStatusChan chan *render.Status
 	shutdown         bool
+	shutdownFuncs    []shutdownFunc
 }
 
 func New(log config.Logger, cfg config.Repository, renderer *render.Queue) (*Repository, error) {
@@ -56,6 +59,7 @@ func New(log config.Logger, cfg config.Repository, renderer *render.Queue) (*Rep
 		activeClones:     make(map[string]*Clone),
 		renderStatusChan: make(chan *render.Status),
 		shutdown:         false,
+		shutdownFuncs:    []shutdownFunc{},
 	}, nil
 }
 
@@ -155,6 +159,7 @@ func (r *Repository) SiteHandler(ctx context.Context, refName string) (http.Hand
 
 func (r *Repository) runLoop(ctx context.Context, wg *sync.WaitGroup) {
 	defer wg.Done()
+	defer r.cleanup()
 
 	start := time.Now()
 	baseRepo, err := r.initOrOpenRepository()
@@ -186,7 +191,6 @@ func (r *Repository) runLoop(ctx context.Context, wg *sync.WaitGroup) {
 			r.shutdown = true
 
 			r.log.Debugln("Shutting down repository...")
-			r.cleanup()
 			return
 		case status := <-r.renderStatusChan:
 			r.log.Debugf("Got render status for %s", status.CommitHash)
@@ -213,6 +217,12 @@ func (r *Repository) cleanup() {
 
 		if err := r.doCleanupClone(clone); err != nil {
 			r.log.Errorf("Error cleaning up clone: %s", err)
+		}
+	}
+
+	for _, f := range r.shutdownFuncs {
+		if err := f(); err != nil {
+			r.log.Errorf("Error during shutdown: %s", err)
 		}
 	}
 }
@@ -263,22 +273,38 @@ func (r *Repository) setBaseRepo(baseRepo *git.Repository) {
 }
 
 func (r *Repository) initOrOpenRepository() (*git.Repository, error) {
-	if r.cfg.LocalPath == "" {
-		// In-memory repository can never be opened
-		return git.Init(memory.NewStorage(), nil)
-	}
+	repoPath := r.cfg.LocalPath
+	if repoPath == "" {
+		tmpPath, err := ioutil.TempDir("", "hugo-preview-base-")
+		if err != nil {
+			r.log.Warnf("Failed to create temporary base repository, falling back to in-memory: %s", err)
+			return git.Init(memory.NewStorage(), nil)
+		}
 
-	baseRepo, err := git.PlainOpen(r.cfg.LocalPath)
+		r.shutdownFuncs = append(r.shutdownFuncs, func() error {
+			r.log.Debugf("Removing temporary base repository %q", tmpPath)
+
+			if err := os.RemoveAll(tmpPath); err != nil {
+				return fmt.Errorf("can not remove temporary base repository %q: %w", tmpPath, err)
+			}
+
+			return nil
+		})
+		repoPath = tmpPath
+	}
+	r.log.Infof("Local repository path: %s", repoPath)
+
+	baseRepo, err := git.PlainOpen(repoPath)
 	switch {
 	case err == git.ErrRepositoryNotExists:
-		baseRepo, err := git.PlainInit(r.cfg.LocalPath, true)
+		baseRepo, err := git.PlainInit(repoPath, true)
 		if err != nil {
-			return nil, fmt.Errorf("can not create repository in %q: %w", r.cfg.LocalPath, err)
+			return nil, fmt.Errorf("can not create repository in %q: %w", repoPath, err)
 		}
 
 		return baseRepo, nil
 	case err != nil:
-		return nil, fmt.Errorf("can not open repository at %q: %w", r.cfg.LocalPath, err)
+		return nil, fmt.Errorf("can not open repository at %q: %w", repoPath, err)
 	default:
 	}
 
