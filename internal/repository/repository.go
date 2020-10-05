@@ -62,68 +62,7 @@ func New(log config.Logger, cfg config.Repository, renderer *render.Queue) (*Rep
 func (r *Repository) Start(ctx context.Context, wg *sync.WaitGroup) error {
 	wg.Add(1)
 
-	go func() {
-		defer wg.Done()
-
-		r.log.Infoln("Cloning repository...")
-		start := time.Now()
-		baseRepo, err := git.Init(memory.NewStorage(), nil)
-		if err != nil {
-			r.log.Errorf("Error creating repository: %s", err)
-			return
-		}
-		r.setBaseRepo(baseRepo)
-
-		refSpecs := make([]gitconfig.RefSpec, len(r.cfg.RefSpecs))
-		for i, r := range r.cfg.RefSpecs {
-			refSpecs[i] = gitconfig.RefSpec(r)
-		}
-		if _, err := baseRepo.CreateRemote(&gitconfig.RemoteConfig{
-			Name: "origin",
-			URLs: []string{
-				r.cfg.URL,
-			},
-			Fetch: refSpecs,
-		}); err != nil {
-			r.log.Errorf("Error creating remote: %s", err)
-			return
-		}
-
-		if err := r.fetchBase(ctx); err != nil {
-			r.log.Errorf("Error during initial fetch: %s", err)
-			return
-		}
-
-		r.log.Infof("Initial clone successful in %s", time.Since(start))
-
-		r.log.Debugf("Fetching repo every %s", r.cfg.FetchInterval)
-		fetchTimer := time.NewTicker(r.cfg.FetchInterval)
-		defer fetchTimer.Stop()
-
-		for {
-			select {
-			case <-ctx.Done():
-				r.shutdown = true
-
-				r.log.Debugln("Shutting down repository...")
-				r.cleanup()
-				return
-			case status := <-r.renderStatusChan:
-				r.log.Debugf("Got render status for %s", status.CommitHash)
-
-				if err := r.setCloneStatus(status); err != nil {
-					r.log.Errorf("Error updating clone status for %q: %s", status.CommitHash, err)
-				}
-			case start := <-fetchTimer.C:
-				r.log.Debugf("Starting fetch at %s", start.UTC())
-				if err := r.fetchBase(ctx); err != nil {
-					r.log.Errorf("Error during fetch: %s", err)
-				}
-				r.log.Debugf("Fetch done in %s", time.Since(start))
-			}
-		}
-	}()
-
+	go r.runLoop(ctx, wg)
 	return nil
 }
 
@@ -214,6 +153,57 @@ func (r *Repository) SiteHandler(ctx context.Context, refName string) (http.Hand
 	return clone, nil
 }
 
+func (r *Repository) runLoop(ctx context.Context, wg *sync.WaitGroup) {
+	defer wg.Done()
+
+	start := time.Now()
+	baseRepo, err := r.initOrOpenRepository()
+	if err != nil {
+		r.log.Errorf("Error creating base repository: %s", err)
+		return
+	}
+	r.setBaseRepo(baseRepo)
+
+	if err := r.ensureOrigin(); err != nil {
+		r.log.Errorf("Error creating origin remote: %s", err)
+		return
+	}
+
+	if err := r.fetchBase(ctx); err != nil {
+		r.log.Errorf("Error during initial fetch: %s", err)
+		return
+	}
+
+	r.log.Infof("Repository initialization took %s", time.Since(start))
+
+	r.log.Debugf("Fetching repo every %s", r.cfg.FetchInterval)
+	fetchTimer := time.NewTicker(r.cfg.FetchInterval)
+	defer fetchTimer.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			r.shutdown = true
+
+			r.log.Debugln("Shutting down repository...")
+			r.cleanup()
+			return
+		case status := <-r.renderStatusChan:
+			r.log.Debugf("Got render status for %s", status.CommitHash)
+
+			if err := r.setCloneStatus(status); err != nil {
+				r.log.Errorf("Error updating clone status for %q: %s", status.CommitHash, err)
+			}
+		case start := <-fetchTimer.C:
+			r.log.Debugf("Starting fetch at %s", start.UTC())
+			if err := r.fetchBase(ctx); err != nil {
+				r.log.Errorf("Error during fetch: %s", err)
+			}
+			r.log.Debugf("Fetch done in %s", time.Since(start))
+		}
+	}
+}
+
 func (r *Repository) cleanup() {
 	r.repoLock.Lock()
 	defer r.repoLock.Unlock()
@@ -272,6 +262,29 @@ func (r *Repository) setBaseRepo(baseRepo *git.Repository) {
 	r.baseRepo = baseRepo
 }
 
+func (r *Repository) initOrOpenRepository() (*git.Repository, error) {
+	if r.cfg.LocalPath == "" {
+		// In-memory repository can never be opened
+		return git.Init(memory.NewStorage(), nil)
+	}
+
+	baseRepo, err := git.PlainOpen(r.cfg.LocalPath)
+	switch {
+	case err == git.ErrRepositoryNotExists:
+		baseRepo, err := git.PlainInit(r.cfg.LocalPath, true)
+		if err != nil {
+			return nil, fmt.Errorf("can not create repository in %q: %w", r.cfg.LocalPath, err)
+		}
+
+		return baseRepo, nil
+	case err != nil:
+		return nil, fmt.Errorf("can not open repository at %q: %w", r.cfg.LocalPath, err)
+	default:
+	}
+
+	return baseRepo, nil
+}
+
 func (r *Repository) fetchBase(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, r.cfg.FetchTimeout)
 	defer cancel()
@@ -283,6 +296,46 @@ func (r *Repository) fetchBase(ctx context.Context) error {
 		return err
 	default:
 	}
+	return nil
+}
+
+func (r *Repository) ensureOrigin() error {
+	remote, err := r.baseRepo.Remote("origin")
+	switch {
+	case err == git.ErrRemoteNotFound:
+		return r.createOrigin()
+	case err == git.ErrRemoteExists:
+		if len(remote.Config().URLs) == 0 {
+			return fmt.Errorf("remote does not have an URL: %v", remote)
+		}
+
+		remoteURL := remote.Config().URLs[0]
+		if remoteURL != r.cfg.URL {
+			return fmt.Errorf("remote points to unknown URL: %s", remoteURL)
+		}
+	case err != nil:
+		return fmt.Errorf("can not look up remote: %w", err)
+	}
+
+	return nil
+}
+
+func (r *Repository) createOrigin() error {
+	refSpecs := make([]gitconfig.RefSpec, len(r.cfg.RefSpecs))
+	for i, r := range r.cfg.RefSpecs {
+		refSpecs[i] = gitconfig.RefSpec(r)
+	}
+
+	if _, err := r.baseRepo.CreateRemote(&gitconfig.RemoteConfig{
+		Name: "origin",
+		URLs: []string{
+			r.cfg.URL,
+		},
+		Fetch: refSpecs,
+	}); err != nil {
+		return fmt.Errorf("error creating remote: %w", err)
+	}
+
 	return nil
 }
 

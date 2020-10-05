@@ -30,6 +30,7 @@ type Config struct {
 // Repository contains configuration about a Git repository.
 type Repository struct {
 	URL           string        `yaml:"url"`
+	LocalPath     string        `yaml:"localPath"`
 	RefSpecs      []string      `yaml:"refSpecs"`
 	FetchInterval time.Duration `yaml:"fetchInterval"`
 	FetchTimeout  time.Duration `yaml:"fetchTimeout"`
