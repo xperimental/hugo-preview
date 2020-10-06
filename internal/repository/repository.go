@@ -472,8 +472,13 @@ func (r *Repository) createClone(ctx context.Context, commitHash string) (*Clone
 
 	clone := NewClone(r.log, commitHash, baseURL.Path, dir)
 
+	cloneURL := r.cfg.URL
+	if r.cfg.LocalPath != "" {
+		cloneURL = r.cfg.LocalPath
+	}
+
 	renderInfo := &render.Info{
-		RepositoryURL: r.cfg.URL,
+		RepositoryURL: cloneURL,
 		CommitHash:    commitHash,
 		TargetPath:    dir,
 		StatusChan:    r.renderStatusChan,
