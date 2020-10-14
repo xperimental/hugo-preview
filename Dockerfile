@@ -7,7 +7,7 @@ WORKDIR /build
 ENV LD_FLAGS="-w"
 ENV CGO_ENABLED=0
 RUN go get -u github.com/gobuffalo/packr/v2/packr2
-RUN wget -O /tmp/hugo.tar.gz https://github.com/gohugoio/hugo/releases/download/v0.75.1/hugo_0.75.1_Linux-64bit.tar.gz \
+RUN wget -O /tmp/hugo.tar.gz https://github.com/gohugoio/hugo/releases/download/v0.76.5/hugo_0.76.5_Linux-64bit.tar.gz \
  && tar xvzf /tmp/hugo.tar.gz -C /tmp
 
 COPY go.mod go.sum /build/
