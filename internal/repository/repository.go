@@ -199,6 +199,10 @@ func (r *Repository) runLoop(ctx context.Context, wg *sync.WaitGroup) {
 				r.log.Errorf("Error updating clone status for %q: %s", status.CommitHash, err)
 			}
 		case start := <-fetchTimer.C:
+			if r.cfg.CloneCleanupTimeout > 0 {
+				r.checkExpiredClones(start)
+			}
+
 			r.log.Debugf("Starting fetch at %s", start.UTC())
 			if err := r.fetchBase(ctx); err != nil {
 				r.log.Errorf("Error during fetch: %s", err)
@@ -240,7 +244,6 @@ func (r *Repository) cleanupClone(commitHash string) error {
 		return err
 	}
 
-	delete(r.activeClones, commitHash)
 	return nil
 }
 
@@ -248,8 +251,26 @@ func (r *Repository) doCleanupClone(clone *Clone) error {
 	if err := os.RemoveAll(clone.Directory); err != nil {
 		return fmt.Errorf("error removing directory %q: %s", clone.Directory, err)
 	}
+	delete(r.activeClones, clone.Commit)
 
 	return nil
+}
+
+func (r *Repository) checkExpiredClones(now time.Time) {
+	r.repoLock.Lock()
+	defer r.repoLock.Unlock()
+
+	r.log.Debugf("Checking for expired clones at %s (timeout %s)", now.UTC(), r.cfg.CloneCleanupTimeout)
+	for _, clone := range r.activeClones {
+		age := now.Sub(clone.LastAccess)
+		r.log.Debugf("Clone %s, last access age: %s", clone.Commit, age)
+		if age > r.cfg.CloneCleanupTimeout {
+			r.log.Debugf("Removing expired clone %s", clone.Commit)
+			if err := r.doCleanupClone(clone); err != nil {
+				r.log.Errorf("Error cleaning up %s: %s", clone.Commit, err)
+			}
+		}
+	}
 }
 
 func (r *Repository) setCloneStatus(renderStatus *render.Status) error {
