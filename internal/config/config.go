@@ -29,12 +29,13 @@ type Config struct {
 
 // Repository contains configuration about a Git repository.
 type Repository struct {
-	URL           string        `yaml:"url"`
-	LocalPath     string        `yaml:"localPath"`
-	RefSpecs      []string      `yaml:"refSpecs"`
-	FetchInterval time.Duration `yaml:"fetchInterval"`
-	FetchTimeout  time.Duration `yaml:"fetchTimeout"`
-	CloneTimeout  time.Duration `yaml:"cloneTimeout"`
+	URL                 string        `yaml:"url"`
+	LocalPath           string        `yaml:"localPath"`
+	RefSpecs            []string      `yaml:"refSpecs"`
+	FetchInterval       time.Duration `yaml:"fetchInterval"`
+	FetchTimeout        time.Duration `yaml:"fetchTimeout"`
+	CloneTimeout        time.Duration `yaml:"cloneTimeout"`
+	CloneCleanupTimeout time.Duration `yaml:"cleanupTimeout"`
 }
 
 // Server contains configuration for the HTTP server.
@@ -110,6 +111,10 @@ func setDefaults(cfg *Config) {
 
 	if cfg.Repository.CloneTimeout == 0 {
 		cfg.Repository.CloneTimeout = 1 * time.Minute
+	}
+
+	if cfg.Repository.CloneCleanupTimeout == 0 {
+		cfg.Repository.CloneCleanupTimeout = time.Hour
 	}
 
 	if cfg.Server.ListenAddress == "" {
