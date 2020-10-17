@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/go-git/go-git/v5"
@@ -133,5 +134,10 @@ func (q *Queue) BaseURL(commitHash string) (*url.URL, error) {
 	}
 
 	u.Path = filepath.Join(u.Path, "preview", commitHash)
+
+	if !strings.HasSuffix(u.Path, "/") {
+		u.Path = u.Path + "/"
+	}
+
 	return u, nil
 }
