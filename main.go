@@ -28,10 +28,18 @@ var (
 
 func main() {
 	cfg, err := config.GetConfig(os.Args)
-	if err != nil {
+	switch {
+	case err == config.NoErrShowDefaults:
+		log.Debug("Showing default configuration")
+		if err := config.WriteConfig(os.Stdout, cfg); err != nil {
+			log.Errorf("Error writing config: %s", err)
+		}
+		return
+	case err != nil:
 		log.Fatalf("Error in configuration: %s", err)
+	default:
+		log.SetLevel(cfg.LogLevel)
 	}
-	log.SetLevel(cfg.LogLevel)
 
 	renderQueue := render.NewQueue(log.WithField("component", "render"), cfg)
 

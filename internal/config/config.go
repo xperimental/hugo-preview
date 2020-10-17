@@ -13,6 +13,10 @@ import (
 	"gopkg.in/yaml.v2"
 )
 
+var (
+	NoErrShowDefaults = errors.New("showing defaults")
+)
+
 // Logger provides an application-wide definition of a Logger interface.
 type Logger interface {
 	logrus.FieldLogger
@@ -57,13 +61,21 @@ type OAuth struct {
 // GetConfig parses the command-line parameters and created the configuration.
 func GetConfig(args []string) (Config, error) {
 	configFile := "hugo-preview.yml"
+	showDefaults := false
 
 	flags := pflag.NewFlagSet(args[0], pflag.ContinueOnError)
 	flags.StringVarP(&configFile, "config-file", "c", configFile, "Path to configuration file.")
+	flags.BoolVar(&showDefaults, "show-defaults", showDefaults, "Output configuration file containing defaults.")
 
 	err := flags.Parse(args[1:])
 	if err != nil {
 		return Config{}, fmt.Errorf("can not parse command-line parameters: %w", err)
+	}
+
+	if showDefaults {
+		c := Config{}
+		setDefaults(&c)
+		return c, NoErrShowDefaults
 	}
 
 	if configFile == "" {
@@ -132,4 +144,12 @@ func setDefaults(cfg *Config) {
 	if cfg.Server.ShutdownTimeout == 0 {
 		cfg.Server.ShutdownTimeout = 2 * time.Second
 	}
+}
+
+func WriteConfig(w io.Writer, cfg Config) error {
+	if err := yaml.NewEncoder(w).Encode(&cfg); err != nil {
+		return fmt.Errorf("can not write yaml: %w", err)
+	}
+
+	return nil
 }
