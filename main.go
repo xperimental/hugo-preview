@@ -83,7 +83,7 @@ func runMain(renderQueue *render.Queue, repo *repository.Repository, srv *server
 func initSignalHandler() (context.Context, context.CancelFunc) {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	sigCh := make(chan os.Signal)
+	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
 	go func() {
 		sig := <-sigCh

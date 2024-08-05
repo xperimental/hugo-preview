@@ -231,22 +231,6 @@ func (r *Repository) cleanup() {
 	}
 }
 
-func (r *Repository) cleanupClone(commitHash string) error {
-	r.repoLock.Lock()
-	defer r.repoLock.Unlock()
-
-	clone, ok := r.activeClones[commitHash]
-	if !ok {
-		return fmt.Errorf("clone not found: %s", commitHash)
-	}
-
-	if err := r.doCleanupClone(clone); err != nil {
-		return err
-	}
-
-	return nil
-}
-
 func (r *Repository) doCleanupClone(clone *Clone) error {
 	if err := os.RemoveAll(clone.Directory); err != nil {
 		return fmt.Errorf("error removing directory %q: %s", clone.Directory, err)
