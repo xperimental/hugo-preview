@@ -23,4 +23,3 @@ image:
 .PHONY: clean
 clean:
 	rm -f hugo-preview
-	rm -r dist
