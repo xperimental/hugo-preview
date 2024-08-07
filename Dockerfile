@@ -6,7 +6,10 @@ WORKDIR /build
 
 ENV LD_FLAGS="-w"
 ENV CGO_ENABLED=0
-RUN wget -O /tmp/hugo.tar.gz https://github.com/gohugoio/hugo/releases/download/v0.76.5/hugo_0.76.5_Linux-64bit.tar.gz \
+
+ENV HUGO_VERSION=0.124.0
+
+RUN wget -O /tmp/hugo.tar.gz https://github.com/gohugoio/hugo/releases/download/v${HUGO_VERSION}/hugo_${HUGO_VERSION}_Linux-64bit.tar.gz \
  && tar xvzf /tmp/hugo.tar.gz -C /tmp
 
 COPY go.mod go.sum /build/
