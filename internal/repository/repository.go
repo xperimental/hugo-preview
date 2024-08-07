@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"os"
 	"regexp"
@@ -231,22 +230,6 @@ func (r *Repository) cleanup() {
 	}
 }
 
-func (r *Repository) cleanupClone(commitHash string) error {
-	r.repoLock.Lock()
-	defer r.repoLock.Unlock()
-
-	clone, ok := r.activeClones[commitHash]
-	if !ok {
-		return fmt.Errorf("clone not found: %s", commitHash)
-	}
-
-	if err := r.doCleanupClone(clone); err != nil {
-		return err
-	}
-
-	return nil
-}
-
 func (r *Repository) doCleanupClone(clone *Clone) error {
 	if err := os.RemoveAll(clone.Directory); err != nil {
 		return fmt.Errorf("error removing directory %q: %s", clone.Directory, err)
@@ -296,7 +279,7 @@ func (r *Repository) setBaseRepo(baseRepo *git.Repository) {
 func (r *Repository) initOrOpenRepository() (*git.Repository, error) {
 	repoPath := r.cfg.LocalPath
 	if repoPath == "" {
-		tmpPath, err := ioutil.TempDir("", "hugo-preview-base-")
+		tmpPath, err := os.MkdirTemp("", "hugo-preview-base-")
 		if err != nil {
 			r.log.Warnf("Failed to create temporary base repository, falling back to in-memory: %s", err)
 			return git.Init(memory.NewStorage(), nil)
@@ -485,7 +468,7 @@ func (r *Repository) createClone(ctx context.Context, commitHash string) (*Clone
 		return nil, fmt.Errorf("can not create base URL: %s", err)
 	}
 
-	dir, err := ioutil.TempDir("", "hugo-preview-")
+	dir, err := os.MkdirTemp("", "hugo-preview-")
 	if err != nil {
 		return nil, fmt.Errorf("can not create clone directory: %s", err)
 	}
