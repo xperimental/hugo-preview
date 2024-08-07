@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"os"
 	"regexp"
@@ -469,7 +468,7 @@ func (r *Repository) createClone(ctx context.Context, commitHash string) (*Clone
 		return nil, fmt.Errorf("can not create base URL: %s", err)
 	}
 
-	dir, err := ioutil.TempDir("", "hugo-preview-")
+	dir, err := os.MkdirTemp("", "hugo-preview-")
 	if err != nil {
 		return nil, fmt.Errorf("can not create clone directory: %s", err)
 	}
