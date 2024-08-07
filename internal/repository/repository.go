@@ -280,7 +280,7 @@ func (r *Repository) setBaseRepo(baseRepo *git.Repository) {
 func (r *Repository) initOrOpenRepository() (*git.Repository, error) {
 	repoPath := r.cfg.LocalPath
 	if repoPath == "" {
-		tmpPath, err := ioutil.TempDir("", "hugo-preview-base-")
+		tmpPath, err := os.MkdirTemp("", "hugo-preview-base-")
 		if err != nil {
 			r.log.Warnf("Failed to create temporary base repository, falling back to in-memory: %s", err)
 			return git.Init(memory.NewStorage(), nil)
