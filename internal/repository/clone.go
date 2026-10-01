@@ -41,7 +41,8 @@ func NewClone(log config.Logger, commitHash, basePath, targetDir string) *Clone 
 
 func (c *Clone) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if c.RenderStatus == nil {
-		http.Error(w, "Clone not ready yet.", http.StatusInternalServerError)
+		w.Header().Set("refresh", "10")
+		http.Error(w, "Website is being rendered. Please reload in a few seconds...", http.StatusGatewayTimeout)
 		return
 	}
 
