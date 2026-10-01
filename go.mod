@@ -2,7 +2,7 @@ module github.com/xperimental/hugo-preview
 
 go 1.22
 
-toolchain go1.22.2
+toolchain go1.27.1
 
 require (
 	github.com/dustin/go-humanize v1.0.0
