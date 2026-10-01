@@ -7,7 +7,7 @@ WORKDIR /build
 ENV LD_FLAGS="-w"
 ENV CGO_ENABLED=0
 
-ENV HUGO_VERSION=0.124.0
+ENV HUGO_VERSION=0.163.3
 
 RUN wget -O /tmp/hugo.tar.gz https://github.com/gohugoio/hugo/releases/download/v${HUGO_VERSION}/hugo_${HUGO_VERSION}_Linux-64bit.tar.gz \
  && tar xvzf /tmp/hugo.tar.gz -C /tmp
